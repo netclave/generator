@@ -1,0 +1,13 @@
+{
+    "host": {
+        "httpaddress": ":8081",
+        "grpcaddress": "localhost:6666"
+    },
+    "datastorage" : {
+        "credentials": {
+            "filename":     "/home/gbodurov/generator.db"
+        },
+    	"type": "sqlite"
+    },
+    "disableusbsecurity": true
+}
