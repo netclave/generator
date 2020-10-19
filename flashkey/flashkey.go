@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/netclave/common/cryptoutils"
@@ -29,23 +28,10 @@ import (
 	"github.com/netclave/generator/config"
 )
 
-var BinSh = "/bin/sh"
-var C = "-c"
-
 var UUIDseparator = ": UUID=\""
 var FindMnt = "findmnt "
 var Blkid = "blkid -t TYPE=vfat -sUUID"
 var EncryptedUUID = "encryptedUUID"
-
-//runCommandGetOutput runs command directly and returns the output as a string
-func runCommandGetOutput(command string) (string, error) {
-	b, err := exec.Command(BinSh, C, command).Output()
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
-}
 
 //createAndWriteFile tries to create a file filename and write value to it
 func createAndWriteFile(filename string, value string) error {
@@ -69,7 +55,7 @@ func getMntPointAndDevID(devInfo string) (string, string, error) {
 	drive := devInfoSplit[0]
 	devID := devInfoSplit[1][:len(devInfoSplit[1])-1]
 
-	findmntOutput, err := runCommandGetOutput(FindMnt + drive)
+	findmntOutput, err := utils.RunCommandGetOutput(FindMnt + drive)
 	if err != nil {
 		return "", "", err
 	}
@@ -83,7 +69,7 @@ func getMntPointAndDevID(devInfo string) (string, string, error) {
 func listAllDevices() ([]string, error) {
 	//fmt.Println(Blkid)
 
-	blkidOutput, err := runCommandGetOutput(Blkid)
+	blkidOutput, err := utils.RunCommandGetOutput(Blkid)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +189,7 @@ func AnyRegisteredFlashkeys() (bool, error) {
 
 //ListNonRegisteredDevices returns a list of IDs and mount points of all devices that are not registered flashkeys for this particular raspberry
 func ListNonRegisteredDevices() ([]string, error) {
+	log.Println("List all devices")
 	devices, err := listAllDevices()
 	if err != nil {
 		return nil, err

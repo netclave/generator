@@ -34,11 +34,19 @@ var StorageType string
 var TokenTTL = time.Duration(300)
 
 var ListenHTTPAddress = ":8081"
+var PublicPort = "8081"
 var ListenGRPCAddress = "localhost:6666"
 var DisableUSBSecurity = false
+var EnableBluetooth = false
+var SameNetwork = true
+var ExternalUrls []string
+var BluetoothEndpointsConfiguration = map[string]string{}
+var BluetoothEncryption = false
+var BluetoothOTPToken string
+var BluetoothAESSecret string
 
 func Init() error {
-	flag.String("configFile", "~/config.json", "Provide full path to your config json file")
+	flag.String("configFile", "/opt/config.json", "Provide full path to your config json file")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -62,9 +70,12 @@ func Init() error {
 	}
 
 	viper.SetDefault("host.httpaddress", ":8081")
+	viper.SetDefault("host.publicport", "8081")
 	viper.SetDefault("host.grpcaddress", "localhost:6666")
 
 	viper.SetDefault("disableusbsecurity", false)
+	viper.SetDefault("samenetwork", true)
+	viper.SetDefault("externalurls", []string{})
 
 	viper.SetDefault("datastorage.credentials", map[string]string{
 		"host":     "localhost:6379",
@@ -73,10 +84,19 @@ func Init() error {
 	})
 	viper.SetDefault("datastorage.type", storage.REDIS_STORAGE)
 
+	viper.SetDefault("enablebluetooth", false)
+	viper.SetDefault("bluetoothserviceuuid", "ec60d335-b78a-40eb-bd0b-4b48a39fe3f0")
+	viper.SetDefault("bluetoothgetendpointswriteuuid", "5c27542d-62ea-4a1a-ab92-cdee7f62a0bb")
+	viper.SetDefault("bluetoothgetendpointsnotifyuuid", "bf8d7d5a-e25b-4ed7-af64-773a7ad3a07e")
+	viper.SetDefault("bluetoothencryption", false)
+	viper.SetDefault("bluetoothotptoken", "otptoken")
+	viper.SetDefault("bluetoothaessecret", "aessecret")
+
 	hostConfig := viper.Sub("host")
 
 	ListenHTTPAddress = hostConfig.GetString("httpaddress")
 	ListenGRPCAddress = hostConfig.GetString("grpcaddress")
+	PublicPort = hostConfig.GetString("publicport")
 
 	log.Println(ListenHTTPAddress)
 	log.Println(ListenGRPCAddress)
@@ -87,6 +107,18 @@ func Init() error {
 	StorageType = datastorageConfig.GetString("type")
 
 	DisableUSBSecurity = viper.GetBool("disableusbsecurity")
+	SameNetwork = viper.GetBool("samenetwork")
+	ExternalUrls = viper.GetStringSlice("externalurls")
+
+	EnableBluetooth = viper.GetBool("enablebluetooth")
+
+	BluetoothEndpointsConfiguration[ServiceUUID] = viper.GetString("bluetoothserviceuuid")
+	BluetoothEndpointsConfiguration[GetEndPointsDescriptorsWriteHandlerUUID] = viper.GetString("bluetoothgetendpointswriteuuid")
+	BluetoothEndpointsConfiguration[GetEndPointsDescriptorsNotifyHandlerUUID] = viper.GetString("bluetoothgetendpointsnotifyuuid")
+
+	BluetoothEncryption = viper.GetBool("bluetoothencryption")
+	BluetoothOTPToken = viper.GetString("bluetoothotptoken")
+	BluetoothAESSecret = viper.GetString("bluetoothaessecret")
 
 	return err
 }

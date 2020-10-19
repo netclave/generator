@@ -1,7 +1,8 @@
 {
     "host": {
         "httpaddress": ":8081",
-        "grpcaddress": "localhost:6666"
+        "grpcaddress": "localhost:6666",
+        "publicport": "8081"
     },
     "datastorage" : {
         "credentials": {
@@ -9,5 +10,8 @@
         },
     	"type": "sqlite"
     },
-    "disableusbsecurity": true
+    "disableusbsecurity": true,
+    "enablebluetooth": false,
+    "sameNetwork": false,
+    "externalUrls": ["http://localhost:8081"]
 }

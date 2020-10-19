@@ -25,7 +25,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/netclave/generator/ble"
 
 	api "github.com/netclave/apis/generator/api"
 	"github.com/netclave/common/cryptoutils"
@@ -33,6 +36,7 @@ import (
 	"github.com/netclave/common/jsonutils"
 	"github.com/netclave/generator/component"
 	"github.com/netclave/generator/config"
+	"github.com/netclave/generator/flashkey"
 	"github.com/netclave/generator/handlers"
 
 	"google.golang.org/grpc"
@@ -44,6 +48,10 @@ const charset = "abcdefghijklmnopqrstuvwxyz" +
 
 var seededRand *rand.Rand = rand.New(
 	rand.NewSource(time.Now().UnixNano()))
+
+var channel chan bool
+var bluetoothStarted = false
+var mutex sync.Mutex
 
 func randStringWithCharset(length int, charset string) string {
 	b := make([]byte, length)
@@ -90,6 +98,10 @@ func startGRPCServer(address string) error {
 
 // GetLocalIP returns the non loopback local IP of the host
 func GetLocalIPs() ([]string, error) {
+	if config.SameNetwork == false {
+		return config.ExternalUrls, nil
+	}
+
 	ips := []string{}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -99,16 +111,68 @@ func GetLocalIPs() ([]string, error) {
 		// check the address type and if it is not a loopback the display it
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
-				ips = append(ips, ipnet.IP.String())
+				ips = append(ips, ipnet.IP.String()+":"+config.PublicPort)
 			}
 		}
 	}
 	return ips, nil
 }
 
+// GetLocalIP returns the non loopback local IP of the host
+func GetExternalWalletIPs() (map[string][]string, error) {
+	ips := map[string][]string{}
+
+	if config.SameNetwork == true {
+		return ips, nil
+	}
+
+	cryptoStorage := component.CreateCryptoStorage()
+
+	wallets, err := cryptoStorage.GetIdentificatorToIdentificatorMap(component.GeneratorIdentificator, cryptoutils.IDENTIFICATOR_TYPE_WALLET)
+
+	if err != nil {
+		return nil, err
+	}
+
+	dataStorage := component.CreateDataStorage()
+
+	for walletIdentitifatorID := range wallets {
+		cache := map[string]bool{}
+
+		suffix := component.IP_TABLE
+
+		ipKeys, err := dataStorage.GetKeys(suffix, walletIdentitifatorID+"/*")
+
+		if err != nil {
+			return nil, err
+		}
+
+		for _, ipKey := range ipKeys {
+			ipTokens := strings.Split(ipKey, "/")
+			ip := ipTokens[2]
+
+			_, ok := ips[walletIdentitifatorID]
+
+			if ok == false {
+				ips[walletIdentitifatorID] = []string{}
+			}
+
+			_, okIp := cache[ip]
+
+			if okIp == false {
+				cache[ip] = true
+				ips[walletIdentitifatorID] = append(ips[walletIdentitifatorID], ip)
+			}
+		}
+	}
+
+	return ips, nil
+}
+
 type UpdateTokensRequest struct {
-	WalletIDToTokenMap map[string]string `json:"walletIDToTokenMap"`
-	LocalIps           []string          `json:"localIps"`
+	WalletIDToTokenMap map[string]string   `json:"walletIDToTokenMap"`
+	LocalIps           []string            `json:"localIps"`
+	RemoteIps          map[string][]string `json:"remoteIps"`
 }
 
 func updateAndSendTokens() error {
@@ -186,9 +250,17 @@ func updateAndSendTokens() error {
 			continue
 		}
 
+		remoteIps, err := GetExternalWalletIPs()
+
+		if err != nil {
+			log.Println(err.Error())
+			continue
+		}
+
 		data := UpdateTokensRequest{
 			WalletIDToTokenMap: walletIDToTokenMap,
 			LocalIps:           localIps,
+			RemoteIps:          remoteIps,
 		}
 
 		request, err := jsonutils.SignAndEncryptResponse(data, generatorID,
@@ -210,7 +282,7 @@ func updateAndSendTokens() error {
 	return nil
 }
 
-func updateRedisIdentificators() error {
+func updateIdentificators() error {
 	cryptoStorage := component.CreateCryptoStorage()
 
 	identityProvidersMap, err := cryptoStorage.GetIdentificatorToIdentificatorMap(component.GeneratorIdentificator, cryptoutils.IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
@@ -308,6 +380,55 @@ func updateRedisIdentificators() error {
 	return nil
 }
 
+func checkWhetherToStartBluetoothServer(generatorAdminServer handlers.GrpcServer) error {
+	if config.EnableBluetooth == false {
+		return nil
+	}
+
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		log.Println(err.Error())
+		return err
+	}
+
+	if !status {
+		if bluetoothStarted == true && channel != nil {
+			ble.StopBLEServer(channel)
+
+			mutex.Lock()
+			bluetoothStarted = false
+			mutex.Unlock()
+
+			channel = nil
+		}
+
+		return nil
+	}
+
+	if bluetoothStarted == false {
+		channel = make(chan bool)
+
+		mutex.Lock()
+		bluetoothStarted = true
+		mutex.Unlock()
+
+		go func() {
+			err = ble.StartBLEServer(generatorAdminServer, channel, config.BluetoothEndpointsConfiguration)
+
+			if err != nil {
+				channel = nil
+
+				mutex.Lock()
+				bluetoothStarted = false
+				mutex.Unlock()
+			}
+		}()
+	}
+
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -336,7 +457,7 @@ func main() {
 
 	go func() {
 		for {
-			err = updateRedisIdentificators()
+			err = updateIdentificators()
 
 			if err != nil {
 				log.Println(err)
@@ -346,10 +467,23 @@ func main() {
 		}
 	}()
 
+	go func() {
+		for {
+			err := checkWhetherToStartBluetoothServer(handlers.GrpcServer{})
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
 	log.Println("Starting http server")
 
 	http.HandleFunc("/getPublicKey", handlers.GetPublicKey)
 	http.HandleFunc("/listTokensForWallet", handlers.ListTokensForWallet)
+	http.HandleFunc("/addWalletPendingRequest", handlers.AddWalletPendingRequest)
 
 	if err := http.ListenAndServe(config.ListenHTTPAddress, nil); err != nil {
 		panic(err)

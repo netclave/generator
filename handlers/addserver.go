@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os/exec"
 
 	api "github.com/netclave/apis/generator/api"
 	"github.com/netclave/common/cryptoutils"
@@ -95,8 +94,9 @@ func (s *GrpcServer) AddIdentityProvider(ctx context.Context, in *api.AddIdentit
 	}
 
 	return &api.AddIdentityProviderResponse{
-		Response:           response,
-		IdentityProviderId: remoteIdentityProviderID,
+		Response:            response,
+		IdentityProviderId:  remoteIdentityProviderID,
+		IdentityProviderUrl: identityProviderURL,
 	}, nil
 }
 
@@ -134,18 +134,6 @@ func (s *GrpcServer) ListIdentityProviders(ctx context.Context, in *api.ListIden
 	return &api.ListIdentityProvidersResponse{
 		IdentityProviders: identityProviders,
 	}, nil
-}
-
-var BinSh = "/bin/sh"
-var C = "-c"
-
-func runCommandGetOutput(command string) (string, error) {
-	b, err := exec.Command(BinSh, C, command).Output()
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
 }
 
 func (s *GrpcServer) ConfirmIdentityProvider(ctx context.Context, in *api.ConfirmIdentityProviderRequest) (*api.ConfirmIdentityProviderResponse, error) {
@@ -304,23 +292,13 @@ func (s *GrpcServer) RegisterDevice(ctx context.Context, in *api.RegisterDeviceR
 	return &api.RegisterDeviceResponse{}, nil
 }
 
-func (s *GrpcServer) AddWallet(ctx context.Context, in *api.AddWalletRequest) (*api.AddWalletResponse, error) {
-	status, err := flashkey.CheckForValidFlashkey()
-
-	if err != nil {
-		return &api.AddWalletResponse{}, err
-	}
-
-	if !status {
-		return &api.AddWalletResponse{}, errors.New(AccessDeniedMessage)
-	}
-
-	QR := in.QRcode
+func SendQRCode(QR string) error {
+	log.Println(QR)
 
 	decodedQR, err := base64.StdEncoding.DecodeString(QR)
 	if err != nil {
 		log.Println("Error: " + err.Error())
-		return &api.AddWalletResponse{}, err
+		return err
 	}
 
 	objectQR := &AddWalletForm{}
@@ -331,7 +309,7 @@ func (s *GrpcServer) AddWallet(ctx context.Context, in *api.AddWalletRequest) (*
 	identityProvidersMap, err := cryptoStorage.GetIdentificatorToIdentificatorMap(component.GeneratorIdentificator, cryptoutils.IDENTIFICATOR_TYPE_IDENTITY_PROVIDER)
 	if err != nil {
 		log.Println("Error: " + err.Error())
-		return &api.AddWalletResponse{}, err
+		return err
 	}
 
 	for _, identityProvider := range identityProvidersMap {
@@ -344,7 +322,7 @@ func (s *GrpcServer) AddWallet(ctx context.Context, in *api.AddWalletRequest) (*
 		identityProviderPublicKey, err := cryptoStorage.RetrievePublicKey(identityProvider.IdentificatorID)
 		if err != nil {
 			log.Println("Error: " + err.Error())
-			return &api.AddWalletResponse{}, err
+			return err
 		}
 
 		fullURL := url + "/exchangePublicKeys"
@@ -363,18 +341,157 @@ func (s *GrpcServer) AddWallet(ctx context.Context, in *api.AddWalletRequest) (*
 
 		if err != nil {
 			log.Println("Error: " + err.Error())
-			return &api.AddWalletResponse{}, err
+			return err
 		}
 
 		_, _, _, err = httputils.MakePostRequest(fullURL, request, true, component.ComponentPrivateKey, cryptoStorage)
 
 		if err != nil {
 			log.Println("Error: " + err.Error())
-			return &api.AddWalletResponse{}, err
+			return err
 		}
 
-		return &api.AddWalletResponse{}, nil
+		return nil
 	}
 
-	return &api.AddWalletResponse{}, errors.New("Couldn't find IdentityProvider")
+	return errors.New("Couldn't find IdentityProvider")
+}
+
+func (s *GrpcServer) AddWallet(ctx context.Context, in *api.AddWalletRequest) (*api.AddWalletResponse, error) {
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		return &api.AddWalletResponse{}, err
+	}
+
+	if !status {
+		return &api.AddWalletResponse{}, errors.New(AccessDeniedMessage)
+	}
+
+	QR := in.QRcode
+
+	err = SendQRCode(QR)
+
+	return &api.AddWalletResponse{}, err
+}
+
+func (s *GrpcServer) ListWallets(ctx context.Context, in *api.ListWalletsRequest) (*api.ListWalletsResponse, error) {
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		return &api.ListWalletsResponse{}, err
+	}
+
+	if !status {
+		return &api.ListWalletsResponse{}, errors.New(AccessDeniedMessage)
+	}
+
+	cryptoStorage := component.CreateCryptoStorage()
+
+	wallets, err := cryptoStorage.GetIdentificatorToIdentificatorMap(component.GeneratorIdentificator, cryptoutils.IDENTIFICATOR_TYPE_WALLET)
+
+	if err != nil {
+		return &api.ListWalletsResponse{}, err
+	}
+
+	result := []string{}
+
+	for _, wallet := range wallets {
+		result = append(result, wallet.IdentificatorID)
+	}
+
+	return &api.ListWalletsResponse{
+		Wallets: result,
+	}, err
+}
+
+func (s *GrpcServer) ApproveWalletSharingRequest(ctx context.Context, in *api.ApproveWalletSharingRequestRequest) (*api.ApproveWalletSharingRequestResponse, error) {
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		return &api.ApproveWalletSharingRequestResponse{}, err
+	}
+
+	if !status {
+		return &api.ApproveWalletSharingRequestResponse{}, errors.New(AccessDeniedMessage)
+	}
+
+	dataStorage := component.CreateDataStorage()
+
+	request := &WalletPendingRequest{}
+
+	err = dataStorage.GetFromMap(component.PENDING_QR_CODES, "", in.RequestHash, request)
+
+	if err != nil {
+		return &api.ApproveWalletSharingRequestResponse{}, err
+	}
+
+	err = SendQRCode(request.QRcode)
+
+	if err != nil {
+		return &api.ApproveWalletSharingRequestResponse{}, err
+	}
+
+	err = dataStorage.DelFromMap(component.PENDING_QR_CODES, "", in.RequestHash)
+
+	if err != nil {
+		return &api.ApproveWalletSharingRequestResponse{}, err
+	}
+
+	return &api.ApproveWalletSharingRequestResponse{}, nil
+}
+
+func (s *GrpcServer) DeleteWalletSharingRequest(ctx context.Context, in *api.DeleteWalletSharingRequestRequest) (*api.DeleteWalletSharingRequestResponse, error) {
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		return &api.DeleteWalletSharingRequestResponse{}, err
+	}
+
+	if !status {
+		return &api.DeleteWalletSharingRequestResponse{}, errors.New(AccessDeniedMessage)
+	}
+
+	dataStorage := component.CreateDataStorage()
+
+	err = dataStorage.DelFromMap(component.PENDING_QR_CODES, "", in.RequestHash)
+
+	return &api.DeleteWalletSharingRequestResponse{}, err
+}
+
+func (s *GrpcServer) GetWalletSharingRequests(ctx context.Context, in *api.GetWalletSharingRequestsRequest) (*api.GetWalletSharingRequestsResponse, error) {
+	status, err := flashkey.CheckForValidFlashkey()
+
+	if err != nil {
+		return &api.GetWalletSharingRequestsResponse{}, err
+	}
+
+	if !status {
+		return &api.GetWalletSharingRequestsResponse{}, errors.New(AccessDeniedMessage)
+	}
+
+	response := &api.GetWalletSharingRequestsResponse{}
+
+	dataStorage := component.CreateDataStorage()
+
+	var requests map[string]*WalletPendingRequest
+
+	err = dataStorage.GetMap(component.PENDING_QR_CODES, "", &requests)
+
+	if err != nil {
+		return response, err
+	}
+
+	for hash, walletRequest := range requests {
+		log.Println(hash)
+		sharingRequest := &api.WalletSharingRequest{
+			Comment:     walletRequest.Comment,
+			QRcode:      walletRequest.QRcode,
+			RequestHash: hash,
+		}
+
+		response.Requests = append(response.Requests, sharingRequest)
+	}
+
+	return response, nil
 }

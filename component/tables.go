@@ -18,3 +18,6 @@ package component
 
 var FLASHKEYS = "flashkeys"
 var TOKENS = "tokens"
+var IP_TABLE = "iptable"
+var PENDING_QR_CODES = "pendingQRCodes"
+var BLUETOOTH_ENDPOINTS = "bluetoothEndpoints"

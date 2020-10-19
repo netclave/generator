@@ -18,6 +18,7 @@ package component
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/netclave/common/cryptoutils"
 	"github.com/netclave/common/storage"
@@ -50,6 +51,12 @@ func LoadComponent() error {
 	cryptoStorage := CreateCryptoStorage()
 
 	dataStorage := CreateDataStorage()
+
+	err = LoadBluetoothEndpoints(dataStorage)
+
+	if err != nil {
+		return err
+	}
 
 	privateKeyPem, err := cryptoStorage.RetrievePrivateKey(COMPONENT_IDENTIFICATOR_ID)
 	if err != nil || privateKeyPem == "" {
@@ -168,4 +175,77 @@ func CreateCryptoStorage() *cryptoutils.CryptoStorage {
 	}
 
 	return cryptoStorage
+}
+
+type BluetoothEndpoint struct {
+	UUID string
+}
+
+func LoadBluetoothEndpoints(storage *storage.GenericStorage) error {
+	var endPoints map[string]*BluetoothEndpoint
+
+	err := storage.GetMap(BLUETOOTH_ENDPOINTS, "", &endPoints)
+
+	if err != nil {
+		return err
+	}
+
+	for _, keyName := range config.GRPCEndPoints {
+		writerEndpointKey := keyName + config.WriteHandlerUUID
+
+		writerEndpoint, ok := endPoints[writerEndpointKey]
+
+		if ok == false {
+			uuid, err := utils.GenerateUUID()
+
+			if err != nil {
+				return err
+			}
+
+			endpoint := BluetoothEndpoint{
+				UUID: uuid,
+			}
+
+			err = storage.AddToMap(BLUETOOTH_ENDPOINTS, "", writerEndpointKey, endpoint)
+
+			if err != nil {
+				return err
+			}
+
+			writerEndpoint = &endpoint
+		}
+
+		notifierEndpointKey := keyName + config.NotifyHandlerUUID
+
+		notifierEndpoint, ok := endPoints[notifierEndpointKey]
+
+		if ok == false {
+			uuid, err := utils.GenerateUUID()
+
+			if err != nil {
+				return err
+			}
+
+			endpoint := BluetoothEndpoint{
+				UUID: uuid,
+			}
+
+			err = storage.AddToMap(BLUETOOTH_ENDPOINTS, "", notifierEndpointKey, endpoint)
+
+			if err != nil {
+				return err
+			}
+
+			notifierEndpoint = &endpoint
+		}
+
+		config.BluetoothEndpointsConfiguration[writerEndpointKey] = writerEndpoint.UUID
+		config.BluetoothEndpointsConfiguration[notifierEndpointKey] = notifierEndpoint.UUID
+	}
+
+	for key, value := range config.BluetoothEndpointsConfiguration {
+		log.Println(key + " ---> " + value)
+	}
+
+	return nil
 }
