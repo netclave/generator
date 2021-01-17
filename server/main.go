@@ -34,6 +34,7 @@ import (
 	"github.com/netclave/common/cryptoutils"
 	"github.com/netclave/common/httputils"
 	"github.com/netclave/common/jsonutils"
+	"github.com/netclave/common/utils"
 	"github.com/netclave/generator/component"
 	"github.com/netclave/generator/config"
 	"github.com/netclave/generator/flashkey"
@@ -380,6 +381,21 @@ func updateIdentificators() error {
 	return nil
 }
 
+func startFail2BanDeamon() error {
+	for {
+		fail2banDataStorage := component.CreateFail2BanDataStorage()
+
+		err := utils.LogBannedIPs(fail2banDataStorage)
+
+		if err != nil {
+			log.Println(err.Error())
+			return err
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func checkWhetherToStartBluetoothServer(generatorAdminServer handlers.GrpcServer) error {
 	if config.EnableBluetooth == false {
 		return nil
@@ -464,6 +480,14 @@ func main() {
 			}
 
 			time.Sleep(2 * time.Second)
+		}
+	}()
+
+	go func() {
+		err := startFail2BanDeamon()
+
+		if err != nil {
+			log.Println(err.Error())
 		}
 	}()
 

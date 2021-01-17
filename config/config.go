@@ -31,6 +31,10 @@ import (
 var DataStorageCredentials map[string]string
 var StorageType string
 
+var Fail2BanDataStorageCredentials map[string]string
+var Fail2BanStorageType string
+var Fail2BanTTL int64
+
 var TokenTTL = time.Duration(300)
 
 var ListenHTTPAddress = ":8081"
@@ -84,6 +88,15 @@ func Init() error {
 	})
 	viper.SetDefault("datastorage.type", storage.REDIS_STORAGE)
 
+	viper.SetDefault("fail2bandatastorage.credentials", map[string]string{
+		"host":     "localhost:6379",
+		"db":       "5",
+		"password": "",
+	})
+	viper.SetDefault("fail2bandatastorage.type", storage.REDIS_STORAGE)
+
+	viper.SetDefault("fail2banttl", int64(300000))
+
 	viper.SetDefault("enablebluetooth", false)
 	viper.SetDefault("bluetoothserviceuuid", "ec60d335-b78a-40eb-bd0b-4b48a39fe3f0")
 	viper.SetDefault("bluetoothgetendpointswriteuuid", "5c27542d-62ea-4a1a-ab92-cdee7f62a0bb")
@@ -105,6 +118,13 @@ func Init() error {
 
 	DataStorageCredentials = datastorageConfig.GetStringMapString("credentials")
 	StorageType = datastorageConfig.GetString("type")
+
+	fail2banDatastorageConfig := viper.Sub("fail2bandatastorage")
+
+	Fail2BanDataStorageCredentials = fail2banDatastorageConfig.GetStringMapString("credentials")
+	Fail2BanStorageType = fail2banDatastorageConfig.GetString("type")
+
+	Fail2BanTTL = viper.GetInt64("fail2banttl")
 
 	DisableUSBSecurity = viper.GetBool("disableusbsecurity")
 	SameNetwork = viper.GetBool("samenetwork")

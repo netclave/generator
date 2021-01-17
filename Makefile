@@ -4,8 +4,7 @@ TARGETARCH := $(if $(TARGETARCH),$(TARGETARCH),amd64)
 TARGETGOARM := $(if $(TARGETGOARM),$(TARGETGOARM),)
 BRANCH := $(if $(BRANCH),$(BRANCH),${GIT_BRANCH})
 GOPRIVATE := $(if $(GOPRIVATE),$(GOPRIVATE),"github.com")
-DEFAULT_COMPILER := ""
-VAR_CGO_ENABLED := $(if $(COMPILER),1,0)
+DEFAULT_COMPILER := "gcc"
 COMPILER := $(if $(COMPILER),"$(COMPILER)",${DEFAULT_COMPILER})
 
 export GOOS=$(TARGETOS)
@@ -30,10 +29,10 @@ dep:
 	-GOPRIVATE=$(GOPRIVATE) go get github.com/netclave/bluetooth-library@${BRANCH}
 
 server: dep ## Build the binary file for server
-	GOPRIVATE=$(GOPRIVATE) CGO_ENABLED=$(VAR_CGO_ENABLED) CC=${COMPILER} go build -ldflags '-s' -i -v -o $(SERVER_OUT) $(SERVER_PKG_BUILD)
+	GOPRIVATE=$(GOPRIVATE) CGO_ENABLED=1 CC=${COMPILER} go build -ldflags '-s' -i -v -o $(SERVER_OUT) $(SERVER_PKG_BUILD)
 
 client: dep ## Build the binary file for client
-	@GOPRIVATE=$(GOPRIVATE) CGO_ENABLED=$(VAR_CGO_ENABLED) CC=${COMPILER} go build -ldflags '-s' -i -v -o $(CLIENT_OUT) $(CLIENT_PKG_BUILD)
+	@GOPRIVATE=$(GOPRIVATE) CGO_ENABLED=1 CC=${COMPILER} go build -ldflags '-s' -i -v -o $(CLIENT_OUT) $(CLIENT_PKG_BUILD)
 
 clean: ## Remove previous builds
 	@rm $(SERVER_OUT) $(CLIENT_OUT) $(API_OUT) $(API_REST_OUT) $(API_SWAG_OUT)
